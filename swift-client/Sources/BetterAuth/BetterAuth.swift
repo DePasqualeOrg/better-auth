@@ -109,28 +109,13 @@ public final class BetterAuth {
   ///   - callbackURL: Optional callback URL
   /// - Returns: The session data
   /// - Throws: An error if verification fails
-  public func verifyMagicLink(token: String, callbackURL: String? = nil) async throws -> SessionData {
+  public func verifyMagicLink(token: String, callbackURL: String? = nil) async throws {
     var path = "/magic-link/verify?token=\(token)"
     if let callbackURL = callbackURL {
       path += "&callbackURL=\(callbackURL)"
     }
     let response: MagicLinkVerificationResponse = try await fetch(path: path, method: "GET")
-    // Create a session data object from the verification response
-    let sessionData = SessionData(
-      user: response.user,
-      session: Session(
-        id: "",  // The token response doesn't include the full session object
-        userId: response.user.id,
-        expiresAt: Date().addingTimeInterval(24 * 60 * 60), // Default to 24 hours
-        createdAt: Date(),
-        updatedAt: Date(),
-        lastUsedAt: nil,
-        userAgent: nil,
-        ip: nil
-      )
-    )
-    self.session = sessionData
-    return sessionData
+    try await getSession()
   }
   
   /// Sign in with a social provider

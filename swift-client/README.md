@@ -58,8 +58,8 @@ let authClient = BetterAuth(config: BetterAuthConfig(
 ```swift
 Task {
     do {
-        let session = try await authClient.signInWithEmail(email: "user@example.com", password: "password")
-        print("Signed in as: \(session.user.name ?? "User")")
+        let user = try await authClient.signInWithEmail(email: "user@example.com", password: "password")
+        print("Signed in as: \(user.name ?? "User")")
     } catch {
         print("Sign in failed: \(error.localizedDescription)")
     }
@@ -277,49 +277,6 @@ if let claims = authClient.getJWTClaims() {
     }
 }
 ```
-
-### Using SwiftUI
-
-The package includes ready-to-use SwiftUI views to integrate authentication into your app:
-
-```swift
-import SwiftUI
-import BetterAuth
-
-struct ContentView: View {
-    let authClient: BetterAuth
-    
-    var body: some View {
-        // Pre-built authentication flow with sign in, sign up, and profile views
-        AuthView(authClient: authClient)
-    }
-}
-```
-
-For more control, you can use the individual components:
-
-```swift
-struct CustomAuthView: View {
-    @State private var isSignedIn = false
-    let authClient: BetterAuth
-    
-    var body: some View {
-        if isSignedIn {
-            ProfileView(authClient: authClient) {
-                isSignedIn = false
-            }
-        } else {
-            SignInView(authClient: authClient) { _ in
-                isSignedIn = true
-            }
-        }
-    }
-}
-```
-
-## Thread Safety
-
-The `BetterAuth` client is implemented as a Swift Actor, ensuring thread safety when accessing shared state. This means you can safely call its methods from different threads without worrying about race conditions.
 
 ## Configuration
 
