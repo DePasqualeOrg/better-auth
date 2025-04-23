@@ -190,24 +190,6 @@ Task {
 }
 ```
 
-#### Observe Session Changes
-
-```swift
-Task {
-    // Add an observer
-    let observerId = await authClient.addSessionObserver { session in
-        if let session = session {
-            print("Session active: \(session.user.name ?? "User")")
-        } else {
-            print("No active session")
-        }
-    }
-    
-    // Later, remove the observer when no longer needed
-    await authClient.removeSessionObserver(id: observerId)
-}
-```
-
 ### JWT Token Management
 
 ```swift

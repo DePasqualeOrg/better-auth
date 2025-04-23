@@ -19,10 +19,7 @@ public final class BetterAuth {
   
   /// Refresh token
   private var refreshToken: String?
-  
-  /// Session observers
-  private var sessionObservers: [UUID: @Sendable (SessionData?) -> Void] = [:]
-    
+
   /// JWT token keychain key (Account name in keychain)
   private let jwtTokenKey = "jwt_token"
   
@@ -39,43 +36,12 @@ public final class BetterAuth {
   
   // MARK: - Session Management
   
-  /// Add a session observer
-  /// - Parameter observer: The observer closure
-  /// - Returns: An observer ID that can be used to remove the observer
-  @discardableResult
-  public func addSessionObserver(_ observer: @escaping @Sendable (SessionData?) -> Void) -> UUID {
-    let id = UUID()
-    sessionObservers[id] = observer
-    
-    // Call the observer with the current session
-    observer(session)
-    
-    return id
-  }
-  
-  /// Remove a session observer
-  /// - Parameter id: The observer ID to remove
-  public func removeSessionObserver(id: UUID) {
-    sessionObservers.removeValue(forKey: id)
-  }
-  
-  /// Notify session observers of changes
-  private func notifySessionObservers() {
-    let currentSession = session
-    for observer in sessionObservers.values {
-      Task { @MainActor in
-        observer(currentSession)
-      }
-    }
-  }
-  
   /// Get the current session
   /// - Returns: The session data
   /// - Throws: An error if the request fails
   public func getSession() async throws -> SessionData {
     let result: SessionData = try await fetchWithTokenRetry(path: "/get-session", method: "GET")
     session = result
-    notifySessionObservers()
     return result
   }
   
@@ -95,7 +61,6 @@ public final class BetterAuth {
     let response: SignInResponse = try await fetch(path: "/sign-in/email", method: "POST", body: body)
     if let sessionData = response.session {
       session = sessionData
-      notifySessionObservers()
       return sessionData
     } else if response.redirect == true {
       // Handle redirect for OAuth flow - not applicable for this client
@@ -151,7 +116,6 @@ public final class BetterAuth {
       )
     )
     self.session = sessionData
-    notifySessionObservers()
     return sessionData
   }
   
@@ -386,7 +350,6 @@ public final class BetterAuth {
     ]
     let sessionData: SessionData = try await fetch(path: "/sign-up/email", method: "POST", body: body)
     session = sessionData
-    notifySessionObservers()
     return sessionData
   }
   
@@ -405,8 +368,6 @@ public final class BetterAuth {
     // Clear keychain
     deleteFromKeychain(key: jwtTokenKey)
     deleteFromKeychain(key: refreshTokenKey)
-    
-    notifySessionObservers()
   }
   
   // MARK: - JWT Token Management

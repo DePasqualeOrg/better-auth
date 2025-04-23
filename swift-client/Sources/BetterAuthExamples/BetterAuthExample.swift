@@ -358,9 +358,6 @@ public struct AuthView: View {
     .task {
       await checkSession()
     }
-    .onAppear {
-      setupObserver()
-    }
   }
 
   private func checkSession() async {
@@ -371,17 +368,6 @@ public struct AuthView: View {
       isSignedIn = false
     }
     isLoading = false
-  }
-
-  private func setupObserver() {
-    // Add observer for session changes
-    Task {
-      let _ = await authClient.addSessionObserver { session in
-        Task { @MainActor in
-          isSignedIn = session != nil
-        }
-      }
-    }
   }
 }
 
