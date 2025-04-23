@@ -5,13 +5,15 @@ import Security
 /**
  * Main client for interacting with Better Auth server.
  */
-public actor BetterAuth {
+@MainActor
+@Observable
+public final class BetterAuth {
   /// Base configuration
   public let config: BetterAuthConfig // Now holds keychain config too
   
   /// Session data
   private var session: SessionData?
-  
+
   /// JWT token
   private var jwtToken: String?
   
@@ -32,8 +34,7 @@ public actor BetterAuth {
   public init(config: BetterAuthConfig) {
     self.config = config // Store the whole config
     
-    // Load refresh token from keychain using configured service name and group
-    self.refreshToken = loadFromKeychain(key: refreshTokenKey) // Warning: Actor-isolated instance method 'loadFromKeychain(key:)' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+    self.refreshToken = loadFromKeychain(key: refreshTokenKey)
   }
   
   // MARK: - Session Management
