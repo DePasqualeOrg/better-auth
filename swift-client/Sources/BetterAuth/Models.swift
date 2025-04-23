@@ -39,9 +39,9 @@ public struct SessionData: Codable {
  * Sign-in response model
  */
 public struct SignInResponse: Codable {
-  public let redirect: Bool?
-  public let url: String?
-  public let session: SessionData?
+  public let redirect: Bool
+  public let token: String? // The session/refresh token (optional in case it's only in headers)
+  public let user: User?    // The user object (optional in case of errors or redirects)
 }
 
 /**
@@ -86,3 +86,18 @@ public struct ErrorResponse: Codable {
  * Empty response for endpoints that don't return data
  */
 public struct EmptyResponse: Codable {}
+
+// MARK: - Date Formatter Helper
+
+extension JSONDecoder.DateDecodingStrategy {
+  static func customBetterAuthDateFormatter() -> JSONDecoder.DateDecodingStrategy {
+    let formatter = DateFormatter()
+    // IMPORTANT: Match the exact format from your JSON
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    formatter.calendar = Calendar(identifier: .iso8601)
+    // Assume UTC unless your server sends dates in local time
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.locale = Locale(identifier: "en_US_POSIX") // Use POSIX locale for fixed formats
+    return .formatted(formatter)
+  }
+}

@@ -12,7 +12,7 @@ public final class BetterAuth {
   public let config: BetterAuthConfig // Now holds keychain config too
   
   /// Session data
-  private var session: SessionData?
+  public var session: SessionData?
 
   /// JWT token
   private var jwtToken: String?
@@ -51,25 +51,39 @@ public final class BetterAuth {
   /// - Parameters:
   ///   - email: User's email
   ///   - password: User's password
-  /// - Returns: The session data
+  /// - Returns: The User object upon successful login. The session token is handled via headers/keychain.
   /// - Throws: An error if the request fails
-  public func signInWithEmail(email: String, password: String) async throws -> SessionData {
+  public func signInWithEmail(email: String, password: String) async throws -> User { // Return type is User
     let body: [String: Any] = [
       "email": email,
       "password": password
     ]
+    // Decode into the SignInResponse struct
+    // `fetch` handles status codes >= 400 and saves the token from the header if present.
     let response: SignInResponse = try await fetch(path: "/sign-in/email", method: "POST", body: body)
-    if let sessionData = response.session {
-      session = sessionData
-      return sessionData
-    } else if response.redirect == true {
-      // Handle redirect for OAuth flow - not applicable for this client
+
+    // The refresh token (if sent via 'set-auth-token' header) is already handled by `fetch`.
+
+    if response.redirect == true {
+      // This shouldn't happen for email/password, but handle defensively
       throw BetterAuthError.flowRequiresRedirect
-    } else {
-      throw BetterAuthError.invalidResponse
     }
+
+    // Check if the user object exists in the decoded response.
+    // If fetch succeeded (status < 400) but user is nil, the response structure is invalid for this endpoint.
+    guard let user = response.user else {
+      print("Error: Sign in response was successful (status < 400) but missing 'user' object in the body.")
+      // We don't need to check response.token here, as the primary goal is the user object.
+      // If the token was also missing in the header, `fetch` wouldn't have saved it,
+      // and subsequent calls requiring auth would fail anyway.
+      throw BetterAuthError.invalidResponse // Indicate the expected data wasn't found
+    }
+
+    // Success! Return the user object.
+    // The session token should be stored in self.refreshToken (handled by fetch's header processing)
+    return user
   }
-  
+
   /// Sign in with magic link
   /// - Parameters:
   ///   - email: User's email
@@ -440,7 +454,8 @@ public final class BetterAuth {
       
       let decoder = JSONDecoder()
       decoder.keyDecodingStrategy = .convertFromSnakeCase
-      
+      decoder.dateDecodingStrategy = .customBetterAuthDateFormatter()
+
       // Handle empty responses for Void or EmptyResponse return types
       if data.isEmpty {
         if T.self == EmptyResponse.self {
@@ -605,7 +620,19 @@ public final class BetterAuth {
     }
     
     let (data, response) = try await URLSession.shared.data(for: request)
-    
+
+    // if let httpResponse = response as? HTTPURLResponse {
+    //   print("--- HTTP Status Code: \(httpResponse.statusCode)")
+    //   print("--- HTTP Headers: \(httpResponse.allHeaderFields)")
+    // }
+    // if let responseString = String(data: data, encoding: .utf8) {
+    //   print("--- Raw Response Body: ---")
+    //   print(responseString)
+    //   print("------------------------")
+    // } else {
+    //   print("--- Could not decode response data as UTF8 string ---")
+    // }
+
     guard let httpResponse = response as? HTTPURLResponse else {
       throw BetterAuthError.invalidResponse
     }
@@ -652,6 +679,7 @@ public final class BetterAuth {
     
     let decoder = JSONDecoder()
     decoder.keyDecodingStrategy = .convertFromSnakeCase
+    decoder.dateDecodingStrategy = .customBetterAuthDateFormatter()
     let decoded = try decoder.decode(T.self, from: data)
     return decoded
   }

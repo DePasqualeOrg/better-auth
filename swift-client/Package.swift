@@ -11,9 +11,6 @@ let package = Package(
         .library(
             name: "BetterAuth",
             targets: ["BetterAuth"]),
-        .library(
-            name: "BetterAuthExamples",
-            targets: ["BetterAuthExamples"]),
     ],
     dependencies: [
         // No external dependencies
@@ -22,9 +19,6 @@ let package = Package(
         .target(
             name: "BetterAuth",
             dependencies: []),
-        .target(
-            name: "BetterAuthExamples",
-            dependencies: ["BetterAuth"]),
         .testTarget(
             name: "BetterAuthTests",
             dependencies: ["BetterAuth"],
