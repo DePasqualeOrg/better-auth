@@ -1,4 +1,6 @@
 import SwiftUI
+import AuthenticationServices
+import BetterAuth
 
 /**
  * Example SwiftUI view for sign in
@@ -8,10 +10,12 @@ public struct SignInView: View {
   @State private var password: String = ""
   @State private var isLoading: Bool = false
   @State private var errorMessage: String? = nil
-
+  // Store ASWebAuthenticationSession to prevent premature deallocation
+  @State private var authSession: ASWebAuthenticationSession?
+  
   let authClient: BetterAuth
   let onSignIn: (SessionData) -> Void
-
+  
   public init(authClient: BetterAuth, onSignIn: @escaping (SessionData) -> Void) {
     self.authClient = authClient
     self.onSignIn = onSignIn
@@ -148,25 +152,59 @@ public struct SignInView: View {
     errorMessage = nil
 
     do {
-      // Specify destination path where user should be directed after authentication
-      // Similar to web client: signIn.social({ provider: "github", callbackURL: "/dashboard" })
-      let url = try await authClient.signInWithSocial(
-        provider: "github",
-        destination: "dashboard" // No leading slash needed - will be handled by the method
-      )
-      // Open URL in Safari or WebView
+      // Use the simpler authenticateWithSocial method that handles ASWebAuthenticationSession for us
 #if os(iOS)
-      await UIApplication.shared.open(url)
+      let result = try await authClient.authenticateWithSocial(
+        provider: "github",
+        destination: "dashboard", 
+        presentationContextProvider: ASWebAuthenticationPresentationContextProvider()
+      )
+      
+      if result.success, let session = result.session {
+        onSignIn(session)
+      } else {
+        errorMessage = "Authentication failed to retrieve a session"
+      }
 #elseif os(macOS)
-      NSWorkspace.shared.open(url)
+      let result = try await authClient.authenticateWithSocial(
+        provider: "github",
+        destination: "dashboard"
+      )
+      
+      if result.success, let session = result.session {
+        onSignIn(session)
+      } else {
+        errorMessage = "Authentication failed to retrieve a session"
+      }
+#else
+      // Fallback for other platforms
+      errorMessage = "Social sign-in not supported on this platform"
 #endif
     } catch {
       errorMessage = error.localizedDescription
     }
-
+    
     isLoading = false
   }
 }
+
+#if os(iOS)
+// MARK: - ASWebAuthenticationPresentationContextProvider
+class ASWebAuthenticationPresentationContextProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+  static let shared = ASWebAuthenticationPresentationContextProvider()
+  
+  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    // Get the connected scenes
+    let scenes = UIApplication.shared.connectedScenes
+    // Find the first active scene that is a UIWindowScene
+    let windowScene = scenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
+    // Get the first window from the scene
+    let window = windowScene?.windows.first { $0.isKeyWindow }
+    
+    return window ?? ASPresentationAnchor()
+  }
+}
+#endif
 
 /**
  * Example SwiftUI view for the user profile
@@ -494,4 +532,3 @@ public extension View {
     modifier(BetterAuthURLHandler(authClient: authClient, scheme: scheme, onNavigate: onNavigate))
   }
 }
-

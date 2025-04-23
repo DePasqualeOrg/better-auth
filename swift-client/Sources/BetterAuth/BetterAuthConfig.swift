@@ -23,6 +23,12 @@ public struct BetterAuthConfig {
   /// URL scheme for OAuth callback URLs (e.g., "better-auth")
   public let callbackURLScheme: String
   
+  /// Whether to share cookies with Safari for single sign-on capabilities.
+  /// When true, if the user is already signed in to providers like Google or GitHub in Safari,
+  /// they may not need to re-enter credentials during social sign-in.
+  /// Default is true for better user experience.
+  public let enableSharedCookies: Bool
+  
   /// Initialize with configuration
   /// - Parameters:
   ///   - baseURL: Base URL for the Better Auth server
@@ -30,17 +36,20 @@ public struct BetterAuthConfig {
   ///   - keychainServiceName: Keychain service name (defaults to "better-auth")
   ///   - keychainAccessGroup: Optional Keychain Access Group for sharing tokens
   ///   - callbackURLScheme: URL scheme for OAuth callback URLs (defaults to "better-auth")
+  ///   - enableSharedCookies: Whether to share cookies with Safari for SSO (defaults to true)
   public init(
     baseURL: String,
     basePath: String? = "/api/auth",
     keychainServiceName: String = "better-auth",
     keychainAccessGroup: String? = nil,
-    callbackURLScheme: String = "better-auth"
+    callbackURLScheme: String = "better-auth",
+    enableSharedCookies: Bool = true
   ) {
     self.baseURL = baseURL
     self.basePath = basePath
-    self.keychainServiceName = keychainServiceName // Store configured name
-    self.keychainAccessGroup = keychainAccessGroup // Store configured group
+    self.keychainServiceName = keychainServiceName
+    self.keychainAccessGroup = keychainAccessGroup
     self.callbackURLScheme = callbackURLScheme
+    self.enableSharedCookies = enableSharedCookies
   }
 }

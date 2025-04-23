@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.10
 import PackageDescription
 
 let package = Package(
@@ -11,6 +11,9 @@ let package = Package(
         .library(
             name: "BetterAuth",
             targets: ["BetterAuth"]),
+        .library(
+            name: "BetterAuthExamples",
+            targets: ["BetterAuthExamples"]),
     ],
     dependencies: [
         // No external dependencies
@@ -18,15 +21,10 @@ let package = Package(
     targets: [
         .target(
             name: "BetterAuth",
-            dependencies: [],
-            path: ".",
-            sources: [
-                "BetterAuth.swift", 
-                "BetterAuthConfig.swift", 
-                "Models.swift", 
-                "Errors.swift",
-                "Examples.swift"
-            ]),
+            dependencies: []),
+        .target(
+            name: "BetterAuthExamples",
+            dependencies: ["BetterAuth"]),
         .testTarget(
             name: "BetterAuthTests",
             dependencies: ["BetterAuth"],

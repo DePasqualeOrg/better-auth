@@ -1,4 +1,5 @@
 import Foundation
+import AuthenticationServices
 import Security
 
 /**
@@ -6,7 +7,7 @@ import Security
  */
 public actor BetterAuth {
   /// Base configuration
-  private let config: BetterAuthConfig // Now holds keychain config too
+  public let config: BetterAuthConfig // Now holds keychain config too
   
   /// Session data
   private var session: SessionData?
@@ -32,7 +33,7 @@ public actor BetterAuth {
     self.config = config // Store the whole config
     
     // Load refresh token from keychain using configured service name and group
-    self.refreshToken = loadFromKeychain(key: refreshTokenKey)
+    self.refreshToken = loadFromKeychain(key: refreshTokenKey) // Warning: Actor-isolated instance method 'loadFromKeychain(key:)' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
   }
   
   // MARK: - Session Management
@@ -192,6 +193,148 @@ public actor BetterAuth {
       throw BetterAuthError.invalidRedirectURL
     }
   }
+  
+  // MARK: - Platform-specific social authentication methods
+  
+  #if os(iOS)
+  /// Initiates social sign-in with ASWebAuthenticationSession on iOS
+  /// - Parameters:
+  ///   - provider: The social provider to use (e.g., "github", "google")
+  ///   - destination: The path to navigate to after successful authentication (e.g., "/dashboard")
+  ///   - options: Additional provider-specific options (optional)
+  ///   - presentationContextProvider: Context provider for iOS (required for iOS)
+  /// - Returns: A tuple containing a success flag and session data if successful
+  /// - Throws: An error if the request fails
+  public func authenticateWithSocial(
+    provider: String,
+    destination: String = "/dashboard",
+    options: [String: Any]? = nil,
+    presentationContextProvider: ASWebAuthenticationPresentationContextProviding
+  ) async throws -> (success: Bool, session: SessionData?) {
+    let url = try await signInWithSocial(provider: provider, destination: destination, options: options)
+    
+    return try await withCheckedThrowingContinuation { continuation in
+      let authSession = ASWebAuthenticationSession(
+        url: url,
+        callbackURLScheme: config.callbackURLScheme
+      ) { callbackURL, error in
+        if let error = error {
+          continuation.resume(throwing: error)
+          return
+        }
+        
+        guard let callbackURL = callbackURL else {
+          continuation.resume(throwing: BetterAuthError.authenticationFailed)
+          return
+        }
+        
+        // Use Task here since we're in a closure
+        Task {
+          let (_, success) = await self.handleAuthCallback(url: callbackURL)
+          if success {
+            // Try to get session data
+            do {
+              let session = try await self.getSession()
+              continuation.resume(returning: (true, session))
+            } catch {
+              continuation.resume(returning: (true, nil))
+            }
+          } else {
+            continuation.resume(returning: (false, nil))
+          }
+        }
+      }
+      
+      // Set presentation context provider for iOS
+      authSession.presentationContextProvider = presentationContextProvider
+      
+      // Configure ephemeral session based on config
+      authSession.prefersEphemeralWebBrowserSession = !config.enableSharedCookies
+      
+      if !authSession.start() {
+        continuation.resume(throwing: BetterAuthError.authenticationFailed)
+      }
+    }
+  }
+  #elseif os(macOS)
+  /// Initiates social sign-in with ASWebAuthenticationSession on macOS
+  /// - Parameters:
+  ///   - provider: The social provider to use (e.g., "github", "google")
+  ///   - destination: The path to navigate to after successful authentication (e.g., "/dashboard")
+  ///   - options: Additional provider-specific options (optional)
+  /// - Returns: A tuple containing a success flag and session data if successful
+  /// - Throws: An error if the request fails
+  public func authenticateWithSocial(
+    provider: String,
+    destination: String = "/dashboard",
+    options: [String: Any]? = nil
+  ) async throws -> (success: Bool, session: SessionData?) {
+    let url = try await signInWithSocial(provider: provider, destination: destination, options: options)
+    
+    return try await withCheckedThrowingContinuation { continuation in
+      let authSession = ASWebAuthenticationSession(
+        url: url,
+        callbackURLScheme: config.callbackURLScheme
+      ) { callbackURL, error in
+        if let error = error {
+          continuation.resume(throwing: error)
+          return
+        }
+        
+        guard let callbackURL = callbackURL else {
+          continuation.resume(throwing: BetterAuthError.authenticationFailed)
+          return
+        }
+        
+        // Use Task here since we're in a closure
+        Task {
+          do {
+            let (_, success) = await self.handleAuthCallback(url: callbackURL)
+            
+            if success {
+              // Try to get session data
+              do {
+                let session = try await self.getSession()
+                continuation.resume(returning: (true, session))
+              } catch {
+                continuation.resume(returning: (true, nil))
+              }
+            } else {
+              continuation.resume(returning: (false, nil))
+            }
+          } catch {
+            continuation.resume(throwing: error)
+          }
+        }
+      }
+      
+      // Configure ephemeral session based on config
+      authSession.prefersEphemeralWebBrowserSession = !config.enableSharedCookies
+      
+      if !authSession.start() {
+        continuation.resume(throwing: BetterAuthError.authenticationFailed)
+      }
+    }
+  }
+  #else
+  /// Initiates social sign-in with ASWebAuthenticationSession
+  /// - Parameters:
+  ///   - provider: The social provider to use (e.g., "github", "google")
+  ///   - destination: The path to navigate to after successful authentication (e.g., "/dashboard")
+  ///   - options: Additional provider-specific options (optional)
+  ///   - presentationContextProvider: Context provider for iOS (required for iOS)
+  /// - Returns: A tuple containing a success flag and session data if successful
+  /// - Throws: An error if the request fails
+  public func authenticateWithSocial(
+    provider: String,
+    destination: String = "/dashboard",
+    options: [String: Any]? = nil,
+    presentationContextProvider: ASWebAuthenticationPresentationContextProviding
+  ) async throws -> (success: Bool, session: SessionData?) {
+    // For platforms other than iOS and macOS
+    throw BetterAuthError.platformNotSupported
+  }
+  #endif
   
   /// Handle the callback URL from social sign in
   /// - Parameter url: The callback URL
