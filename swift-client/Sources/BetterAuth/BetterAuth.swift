@@ -27,15 +27,18 @@ public final class BetterAuth {
 
   /// Refresh token keychain key (Account name in keychain)
   private let refreshTokenKey = "refresh_token"
-  // Removed: private let jwtTokenKey = "jwt_token"
+
+  private let webAuthPresenter: WebAuthPresenter
 
   /// Initialize the Better Auth client with configuration
   /// - Parameter config: The configuration for the client
   public init(config: BetterAuthConfig) {
     self.config = config
-    // Load ONLY the refresh token from keychain on init
+    self.webAuthPresenter = WebAuthPresenter(
+      callbackURLScheme: config.callbackURLScheme,
+      prefersEphemeralSession: !config.enableSharedCookies
+    )
     self.refreshToken = loadFromKeychain(key: refreshTokenKey)
-    // jwtToken starts nil, will be fetched on demand
   }
 
   // MARK: - Session Management
@@ -136,6 +139,7 @@ public final class BetterAuth {
   ) async throws -> URL {
     let cleanDestination = destination.starts(with: "/") ? String(destination.dropFirst()) : destination
     let encodedDestination = cleanDestination.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanDestination
+    // Use the scheme from config for the callbackURL
     let callbackURL = "\(config.callbackURLScheme):///\(encodedDestination)"
 
     var body: [String: Any] = [
@@ -149,7 +153,6 @@ public final class BetterAuth {
       }
     }
 
-    // Use base 'fetch' as this doesn't require prior auth
     let response: SocialAuthResponse = try await fetch(path: "/sign-in/social", method: HTTPMethod.post, body: body)
     if let url = URL(string: response.url) {
       return url
@@ -162,99 +165,67 @@ public final class BetterAuth {
   // (authenticateWithSocial methods remain largely the same conceptually,
   //  they just call the updated signInWithSocial and handleAuthCallback)
 
-#if os(iOS)
-  public func authenticateWithSocial(
-    provider: String,
-    destination: String = "/dashboard",
-    options: [String: Any]? = nil,
-    presentationContextProvider: ASWebAuthenticationPresentationContextProviding
-  ) async throws -> (success: Bool, session: SessionData?) {
-    let url = try await signInWithSocial(provider: provider, destination: destination, options: options)
-
-    return try await withCheckedThrowingContinuation { continuation in
-      let authSession = ASWebAuthenticationSession(
-        url: url,
-        callbackURLScheme: config.callbackURLScheme
-      ) { callbackURL, error in
-        Task { // Ensure async operations run in a Task
-          if let error = error {
-            continuation.resume(throwing: error)
-            return
-          }
-          guard let callbackURL = callbackURL else {
-            continuation.resume(throwing: BetterAuthError.authenticationFailed)
-            return
-          }
-          let (_, success) = await self.handleAuthCallback(url: callbackURL) // handleAuthCallback saves refresh token
-          if success {
-            do {
-              let session = try await self.getSession() // Now uses the new refresh token implicitly via request() -> getJWTToken() -> refresh
-              continuation.resume(returning: (true, session))
-            } catch {
-              print("Error fetching session after social auth callback: \(error)")
-              continuation.resume(returning: (true, nil)) // Success in auth, but session fetch failed
-            }
-          } else {
-            continuation.resume(returning: (false, nil))
-          }
-        }
-      }
-      authSession.presentationContextProvider = presentationContextProvider
-      authSession.prefersEphemeralWebBrowserSession = !config.enableSharedCookies
-      if !authSession.start() {
-        continuation.resume(throwing: BetterAuthError.authenticationFailed)
-      }
-    }
-  }
-#elseif os(macOS)
+#if os(iOS) || os(macOS) || os(visionOS)
+  /// Authenticate using a social provider via ASWebAuthenticationSession.
+  /// - Parameters:
+  ///   - provider: The social provider identifier (e.g., "github", "google").
+  ///   - destination: The path within your app to navigate to after successful authentication (default: "/dashboard").
+  ///   - options: Additional provider-specific options (optional).
+  /// - Returns: A tuple indicating success and the optional SessionData.
+  /// - Throws: Errors related to URL preparation, web authentication session, or post-callback processing.
   public func authenticateWithSocial(
     provider: String,
     destination: String = "/dashboard",
     options: [String: Any]? = nil
+    // Removed presentationContextProvider parameter - it's handled by WebAuthPresenter
   ) async throws -> (success: Bool, session: SessionData?) {
-    let url = try await signInWithSocial(provider: provider, destination: destination, options: options)
+    // 1. Get the authentication URL from your backend
+    let authURL = try await signInWithSocial(provider: provider, destination: destination, options: options)
 
-    return try await withCheckedThrowingContinuation { continuation in
-      let authSession = ASWebAuthenticationSession(
-        url: url,
-        callbackURLScheme: config.callbackURLScheme
-      ) { callbackURL, error in
-        Task { // Ensure async operations run in a Task
-          if let error = error {
-            continuation.resume(throwing: error)
-            return
-          }
-          guard let callbackURL = callbackURL else {
-            continuation.resume(throwing: BetterAuthError.authenticationFailed)
-            return
-          }
-          let (_, success) = await self.handleAuthCallback(url: callbackURL) // handleAuthCallback saves refresh token
-          if success {
-            do {
-              let session = try await self.getSession() // Now uses the new refresh token implicitly via request() -> getJWTToken() -> refresh
-              continuation.resume(returning: (true, session))
-            } catch {
-              print("Error fetching session after social auth callback: \(error)")
-              continuation.resume(returning: (true, nil)) // Success in auth, but session fetch failed
-            }
-          } else {
-            continuation.resume(returning: (false, nil))
-          }
-        }
+    // 2. Use the WebAuthPresenter to handle the ASWebAuthenticationSession flow
+    let callbackURL: URL
+    do {
+      callbackURL = try await webAuthPresenter.authenticate(with: authURL)
+    } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+      print("Web Authentication Canceled by User")
+      throw BetterAuthError.authenticationFailed // Or return specific cancellation tuple if needed
+    } catch {
+      print("Web Authentication Failed: \(error)")
+      throw error // Rethrow other errors
+    }
+
+
+    // 3. Handle the callback URL (extract token, save it)
+    // This part remains the same as we didn't change the backend interaction
+    let (path, success) = await self.handleAuthCallback(url: callbackURL) // handleAuthCallback saves refresh token
+
+    // 4. If callback handling was successful, try to fetch the session
+    if success {
+      do {
+        let session = try await self.getSession() // Now uses the new refresh token implicitly
+        return (true, session)
+      } catch {
+        // Log the error but still return success=true because the *authentication* part succeeded.
+        // The app might want to retry fetching the session or handle this state.
+        print("Error fetching session after successful social auth callback: \(error)")
+        return (true, nil) // Auth succeeded, session fetch failed
       }
-      authSession.prefersEphemeralWebBrowserSession = !config.enableSharedCookies
-      if !authSession.start() {
-        continuation.resume(throwing: BetterAuthError.authenticationFailed)
-      }
+    } else {
+      // If handleAuthCallback failed (e.g., token not found in URL)
+      print("Failed to handle auth callback (token likely missing).")
+      return (false, nil)
     }
   }
 #else
+  // Fallback for unsupported platforms
   public func authenticateWithSocial(
     provider: String,
     destination: String = "/dashboard",
-    options: [String: Any]? = nil,
-    presentationContextProvider: ASWebAuthenticationPresentationContextProviding // Keep param for signature consistency if needed elsewhere
+    options: [String: Any]? = nil
+    // Keep parameter signature consistent if needed, but implementation throws
+    // presentationContextProvider: ASWebAuthenticationPresentationContextProviding? = nil
   ) async throws -> (success: Bool, session: SessionData?) {
+    print("Social authentication via ASWebAuthenticationSession is not supported on this platform.")
     throw BetterAuthError.platformNotSupported
   }
 #endif
@@ -270,33 +241,27 @@ public final class BetterAuth {
     let path = url.path.isEmpty ? "/" : url.path
     let queryItems = components.queryItems
 
-    // Check for refresh token in query parameters (adjust param name if needed)
-    // Prefer 'set-auth-token' if your backend uses that standard, otherwise check common names.
-    let tokenParamName = "set-auth-token" // Or "token", "refresh_token", etc.
+    let tokenParamName = "set-auth-token" // Assuming this is the param name from your backend
     if let tokenItem = queryItems?.first(where: { $0.name == tokenParamName }),
        let tokenValue = tokenItem.value {
 
-      // Clear any old in-memory JWT state as we have a new refresh token
       self.jwtToken = nil
       self.jwtTokenExpiration = nil
       self.jwtTokenClaims = nil
 
-      // Save the new refresh token
       self.refreshToken = tokenValue
       saveToKeychain(key: refreshTokenKey, value: tokenValue)
-
-      // No need to fetch session here, just confirm token was received
+      print("Refresh token successfully extracted from callback URL and saved.")
       return (path, true)
     }
 
-    // Handle potential error parameters from OAuth provider
     if let errorItem = queryItems?.first(where: { $0.name == "error" }) {
       let errorDesc = queryItems?.first(where: { $0.name == "error_description" })?.value
       print("OAuth Callback Error: \(errorItem.value ?? "Unknown") - \(errorDesc ?? "No description")")
       return (path, false)
     }
 
-    print("OAuth Callback: Refresh token not found in query parameters.")
+    print("OAuth Callback: Refresh token ('\(tokenParamName)') not found in query parameters.")
     return (path, false)
   }
 
