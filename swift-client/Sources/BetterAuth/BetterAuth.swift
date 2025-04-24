@@ -114,8 +114,8 @@ public final class BetterAuth {
     if let callbackURL = callbackURL {
       path += "&callbackURL=\(callbackURL)"
     }
-    let response: MagicLinkVerificationResponse = try await fetch(path: path, method: "GET")
-    try await getSession()
+    let _: MagicLinkVerificationResponse = try await fetch(path: path, method: "GET")
+    _ = try await getSession()
   }
   
   /// Sign in with a social provider
@@ -252,22 +252,17 @@ public final class BetterAuth {
         
         // Use Task here since we're in a closure
         Task {
-          do {
-            let (_, success) = await self.handleAuthCallback(url: callbackURL)
-            
-            if success {
-              // Try to get session data
-              do {
-                let session = try await self.getSession()
-                continuation.resume(returning: (true, session))
-              } catch {
-                continuation.resume(returning: (true, nil))
-              }
-            } else {
-              continuation.resume(returning: (false, nil))
+          let (_, success) = await self.handleAuthCallback(url: callbackURL)
+          if success {
+            // Try to get session data
+            do {
+              let session = try await self.getSession()
+              continuation.resume(returning: (true, session))
+            } catch {
+              continuation.resume(returning: (true, nil))
             }
-          } catch {
-            continuation.resume(throwing: error)
+          } else {
+            continuation.resume(returning: (false, nil))
           }
         }
       }
@@ -726,8 +721,8 @@ public final class BetterAuth {
     
     // Add the value data for the save operation
     query[kSecValueData as String] = data
-    // Recommended: Set accessibility to only be available when unlocked
-    query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    // Set accessibility to be available after first unlock, until device restart
+    query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     
     // Add the new item
     let status = SecItemAdd(query as CFDictionary, nil)

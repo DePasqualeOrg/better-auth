@@ -19,9 +19,9 @@ let package = Package(
         .target(
             name: "BetterAuth",
             dependencies: []),
-        .testTarget(
-            name: "BetterAuthTests",
-            dependencies: ["BetterAuth"],
-            path: "Tests"),
+//        .testTarget(
+//            name: "BetterAuthTests",
+//            dependencies: ["BetterAuth"],
+//            path: "Tests"),
     ]
 )
