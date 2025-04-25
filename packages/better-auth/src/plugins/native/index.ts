@@ -2,24 +2,24 @@ import type { BetterAuthPlugin } from "../../types/plugins";
 import { createAuthMiddleware } from "../../api";
 import { parseSetCookieHeader } from "../../cookies";
 
-export interface SwiftOptions {
+export interface NativeOptions {
   /**
-   * Override the URL scheme that will be recognized as Swift App URL scheme
+   * Override the URL scheme that will be recognized as mobile app URL scheme
    * If not provided, will use better-auth:// as the default scheme
    */
   scheme?: string;
 }
 
 /**
- * Plugin for Swift client support
+ * Plugin for native mobile client support (iOS, Android)
  * Adds session token to callback URL query parameters
  */
-export const swift = (options?: SwiftOptions) => {
+export const native = (options?: NativeOptions) => {
   // Get the scheme from options or use default
   const scheme = options?.scheme || "better-auth";
   
   return {
-    id: "swift",
+    id: "native",
     init: (ctx) => {
       // Add the scheme to trusted origins if not already present
       const trustedOrigins = [...(ctx.trustedOrigins || [])];
@@ -51,7 +51,7 @@ export const swift = (options?: SwiftOptions) => {
               return;
             }
             
-            // Check if this is a redirect to our Swift app
+            // Check if this is a redirect to our native mobile app
             const schemePattern = `${scheme}://`;
             if (!location.startsWith(schemePattern)) {
               return;
